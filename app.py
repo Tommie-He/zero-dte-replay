@@ -86,6 +86,115 @@ class Candles(pg.GraphicsObject):
     def boundingRect(self): return QtCore.QRectF(self.pic.boundingRect())
 
 
+class M1Candles(pg.GraphicsObject):
+    """Classic 1-minute candles with wicks; x = epoch seconds at minute centers."""
+    def __init__(self):
+        super().__init__(); self.pic = QtGui.QPicture()
+
+    def setData(self, x, o, h, l, c):
+        self.pic = QtGui.QPicture(); qp = QtGui.QPainter(self.pic)
+        gb = pg.mkBrush("#1a9850"); rb = pg.mkBrush("#d73027")
+        gp = pg.mkPen("#1a9850"); rp = pg.mkPen("#d73027")
+        gp.setCosmetic(True); rp.setCosmetic(True)
+        for i in range(len(x)):
+            up = c[i] >= o[i]
+            qp.setPen(gp if up else rp)
+            qp.drawLine(QtCore.QPointF(x[i], l[i]), QtCore.QPointF(x[i], h[i]))
+            top = max(o[i], c[i]); bot = min(o[i], c[i])
+            qp.setPen(QtCore.Qt.NoPen); qp.setBrush(gb if up else rb)
+            qp.drawRect(QtCore.QRectF(x[i] - 24, bot, 48, max(top - bot, 1e-9)))
+        qp.end(); self.prepareGeometryChange(); self.update(); self.informViewBoundsChanged()
+
+    def paint(self, p, *a): p.drawPicture(0, 0, self.pic)
+
+    def boundingRect(self): return QtCore.QRectF(self.pic.boundingRect())
+
+
+class M1Window(QtWidgets.QMainWindow):
+    """1-minute chart in lockstep with the second chart: the forming minute bar
+    refreshes every second (it does NOT wait for the minute to close)."""
+
+    def __init__(self, host):
+        super().__init__()
+        self.host = host                              # MainWindow
+        self.setWindowTitle("1-min Chart — ZeroDTE Replay")
+        self.resize(1050, 640)
+        cw = QtWidgets.QWidget(); self.setCentralWidget(cw)
+        v = QtWidgets.QVBoxLayout(cw); v.setContentsMargins(4, 4, 4, 4)
+        hb = QtWidgets.QHBoxLayout(); v.addLayout(hb)
+        self.cb_follow = QtWidgets.QCheckBox("Follow"); self.cb_follow.setChecked(True)
+        hb.addWidget(self.cb_follow)
+        hb.addWidget(QtWidgets.QLabel("1-minute candles, in sync with the replay — the last bar is forming live"))
+        hb.addStretch(1)
+        g = pg.GraphicsLayoutWidget(); v.addWidget(g, 1)
+        self.pP = g.addPlot(row=0, col=0, axisItems={"bottom": TimeAxis("bottom")})
+        self.pP.showGrid(x=True, y=True, alpha=0.25); self.pP.setLabel("left", "Price $")
+        g.nextRow()
+        self.pV = g.addPlot(row=1, col=0, axisItems={"bottom": TimeAxis("bottom")})
+        self.pV.showGrid(x=True, y=True, alpha=0.25); self.pV.setLabel("left", "Vol/min")
+        g.ci.layout.setRowStretchFactor(0, 4); g.ci.layout.setRowStretchFactor(1, 1)
+        self.pV.setXLink(self.pP); self.pP.setMouseEnabled(x=True, y=False)
+        for p in (self.pP, self.pV):
+            p.vb.state["wheelScaleFactor"] = -1.0 / 16.0
+        self.cand = M1Candles(); self.pP.addItem(self.cand)
+        self.vwapc = self.pP.plot([], [], pen=pg.mkPen("#f39c12", width=1.5))
+        self.pline = pg.InfiniteLine(angle=0, movable=False, pen=pg.mkPen("#888", style=QtCore.Qt.DashLine))
+        self.pP.addItem(self.pline)
+        self.vU = pg.BarGraphItem(x=[], height=[], width=48, brush="#1a9850", pen=None); self.pV.addItem(self.vU)
+        self.vD = pg.BarGraphItem(x=[], height=[], width=48, brush="#d73027", pen=None); self.pV.addItem(self.vD)
+        self.X = None; self.H = None; self.L = None
+        self.pP.vb.sigXRangeChanged.connect(self._autoY)
+        self.pP.vb.sigRangeChangedManually.connect(self._manual)
+
+    def _manual(self, *a):
+        if self.host.sim_on and self.cb_follow.isChecked():
+            self.cb_follow.setChecked(False)
+
+    def _autoY(self, *a):
+        if self.X is None or not len(self.X): return
+        d0, d1 = self.pP.vb.viewRange()[0]
+        m = (self.X >= d0 - 30) & (self.X <= d1 + 30)
+        if not m.any(): return
+        lo = float(self.L[m].min()); hi = float(self.H[m].max()); sp = max(hi - lo, 1e-6)
+        self.pP.vb.setYRange(lo - 0.05 * sp, hi + 0.05 * sp, padding=0)
+
+    def refresh(self, tn=None):
+        """Aggregate host.arr[:idx] into minute bars (reduceat) and redraw. tn=None → fit whole range."""
+        h = self.host
+        if h.ep is None or h.idx < 1: return
+        ep = h.ep[:h.idx]; arr = h.arr[:h.idx]
+        mk = (ep // 60).astype(np.int64)
+        starts = np.concatenate([[0], np.flatnonzero(np.diff(mk)) + 1])
+        O = arr[starts, 0]
+        C = np.append(arr[starts[1:] - 1, 3], arr[-1, 3])
+        Hh = np.maximum.reduceat(arr[:, 1], starts)
+        Ll = np.minimum.reduceat(arr[:, 2], starts)
+        V = np.add.reduceat(arr[:, 4], starts)
+        X = mk[starts] * 60.0 + 30.0
+        first = self.X is None or len(self.X) == 0
+        self.X = X; self.H = Hh; self.L = Ll
+        self.cand.setData(X, O, Hh, Ll, C)
+        if h.cb_vwap.isChecked():
+            st = max(1, len(ep) // 20000)
+            vw = h.vwap_all[:h.idx]
+            self.vwapc.setData(ep[::st], vw[::st])
+        else:
+            self.vwapc.setData([], [])
+        self.pline.setValue(float(arr[-1, 3]))
+        up = C >= O
+        self.vU.setOpts(x=X[up], height=V[up], width=48)
+        self.vD.setOpts(x=X[~up], height=V[~up], width=48)
+        self.setWindowTitle(f"1-min Chart — {h.day['id']} · {len(X)} bars"
+                            + (" (replaying)" if h.sim_on else " (full day)"))
+        if tn is not None and self.cb_follow.isChecked():
+            d0, d1 = self.pP.vb.viewRange()[0]; W = max(d1 - d0, 600.0)
+            if first or tn > d0 + W * 0.88 or tn < d0:
+                self.pP.setXRange(tn - W * 0.15, tn + W * 0.85, padding=0)
+        elif tn is None or first:
+            self.pP.setXRange(float(X[0]) - 60, float(X[-1]) + 60, padding=0.01)
+        self._autoY()
+
+
 def stride_agg(k, sx, so, sh, sl, sc, sv):
     e = (len(sx) // k) * k; rem = len(sx) > e
     rs = lambda v: v[:e].reshape(-1, k)
@@ -123,6 +232,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.open_anchor = {"C": None, "P": None}
         self.pair_pts = {"C": [], "P": []}
         self.panel = None
+        self.m1 = None                 # 1-min chart window (lazy)
         self._build_ui()
         self.timer = QtCore.QTimer(self); self.timer.setInterval(250)
         self.timer.timeout.connect(self._tick)
@@ -148,12 +258,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cb_ha.setToolTip("Smoothed Heikin-Ashi candles (default). Uncheck for raw OHLC candles with wicks.")
         self.cb_vwap = QtWidgets.QCheckBox("VWAP"); self.cb_vwap.setChecked(bool(cfg_load().get("vwap", True)))
         self.b_panel = QtWidgets.QPushButton("🎯 Order Panel")
+        self.b_m1 = QtWidgets.QPushButton("🕯 1-min Chart")
+        self.b_m1.setToolTip("1-minute candles in sync with the replay — the forming bar updates every second")
         self.lb_clock = QtWidgets.QLabel("—")
         self.lb_clock.setStyleSheet("color:#b8006b;font-size:12pt;font-weight:bold;font-family:Consolas;")
         self.lb_info = QtWidgets.QLabel("Click 🎲 New Session to begin")
         for w in [self.b_pick, self.b_start, self.b_end, QtWidgets.QLabel("Speed"), self.cb_speed,
                   QtWidgets.QLabel("At"), self.te_time, self.b_jump, self.cb_follow, self.cb_ha,
-                  self.cb_vwap, self.b_panel, QtWidgets.QLabel(" ⏱"), self.lb_clock, self.lb_info]:
+                  self.cb_vwap, self.b_panel, self.b_m1, QtWidgets.QLabel(" ⏱"), self.lb_clock, self.lb_info]:
             bar.addWidget(w)
         bar.addStretch(1)
         win = pg.GraphicsLayoutWidget(); v.addWidget(win, 1)
@@ -188,6 +300,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.b_end.clicked.connect(self.end_session)
         self.b_jump.clicked.connect(self.jump_to)
         self.b_panel.clicked.connect(self.show_panel)
+        self.b_m1.clicked.connect(self.show_m1)
         self.cb_speed.currentTextChanged.connect(lambda s: setattr(self, "speed", float(s[:-1])))
         self.cb_vwap.stateChanged.connect(lambda *a: (cfg_save({"vwap": self.cb_vwap.isChecked()}),
                                                       self._invalidate(), self.render()))
@@ -212,6 +325,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def show_panel(self):
         p = self.get_panel(); p.show(); p.raise_(); p.activateWindow()
+
+    def show_m1(self):
+        if self.m1 is None:
+            self.m1 = M1Window(self)
+        self.m1.show(); self.m1.raise_(); self.m1.activateWindow()
+        if self.ep is not None and self.idx >= 1:
+            self.m1.refresh(self.simx(self.T) if self.sim_on else None)
 
     # ------------------------------------------------------------ session
     def pick_session(self):
@@ -269,6 +389,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.last_wall = time.monotonic()
         self.clear_marks()
         self.cb_follow.setChecked(True)
+        if self.m1 is not None:
+            self.m1.cb_follow.setChecked(True); self.m1.X = None   # 新会话: 恢复跟随+强制重锚(防视野停在旧日坐标)
         self.b_pick.setEnabled(False); self.b_start.setEnabled(True)
         self.b_end.setEnabled(True); self.b_jump.setEnabled(True)
         self.b_start.setText("▶ Start")
@@ -303,6 +425,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._invalidate()
         self.pP.setXRange(float(self.ep[0]), float(self.ep[-1]), padding=0.01)
         self.render()
+        if self.m1 is not None and self.m1.isVisible():
+            self.m1.X = None; self.m1.refresh(None)   # 复盘: 1分钟窗fit整天
         self.lb_info.setText("Session ended — full day revealed for review. 🎲 for the next one.")
         self.setWindowTitle(f"{APP_NAME} — {self.day['id']} (review)")
 
@@ -343,6 +467,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 if tn > d0 + W * 0.88 or tn < d0:
                     self.pP.setXRange(tn - W * 0.12, tn + W * 0.88, padding=0)
             self.render()
+            if self.m1 is not None and self.m1.isVisible():
+                self.m1.refresh(tn)
         spot = float(self.arr[idx - 1, 3]) if idx > 0 else None
         if self.panel is not None and spot is not None:
             self.panel.on_tick(self.T, spot, self.speed)

@@ -42,7 +42,9 @@ python app.py
 
 1. Click **🎲 New Session** → a session is blind-picked (reroll if you like) → OK.
 2. The chart arms at your chosen start time. Press **▶ Start** when ready.
-3. Trade from the **🎯 Order Panel** (see below).
+3. Trade from the **🎯 Order Panel** (see below). Open the **🕯 1-min Chart** for a
+   minute-candle view that stays in lockstep with the replay — its forming bar
+   updates every second, it never waits for the minute to close.
 4. Press **⏹ End** (or let it run to the close) → grade the session → it's archived.
 
 ## No option chain. On purpose.
