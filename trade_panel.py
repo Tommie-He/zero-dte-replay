@@ -248,13 +248,16 @@ class TradePanel(QtWidgets.QWidget):
     def _tick_impl(self, T, spot):
         if not self.running: return
         self.T = T; self.spot = float(spot)
+        # ★报价时间基=图表同款"已完成的上一秒" — 期权与股价零错位(否则期权领先1-2秒, 0.5x下肉眼可见);
+        #   成交仍用点击后的下一秒(F1), 无前视
+        self.Tq = T.floor("1s") - pd.Timedelta(seconds=1)
         self.lb_clock.setText(f"⏱ {T.tz_localize(None):%H:%M:%S}")
         self.lb_spot.setText(f"{self.day_id}\n{self.spot:.2f}")
         pnl_tot = 0.0; pnl_any = False; qty_tot = 0; parts = []; entries = []
         for r in ("C", "P"):
             held = self.held[r]; nm = "CALL" if r == "C" else "PUT"
             if held:
-                px = self.qs.now(r, held["strike"], T)
+                px = self.qs.now(r, held["strike"], self.Tq)
                 self.tgt[r].setText(f"ADD {nm} {held['strike']:g} @ {px:.2f}" if px == px
                                     else f"ADD {nm} {held['strike']:g} @ —")
                 if px == px:
@@ -276,7 +279,7 @@ class TradePanel(QtWidgets.QWidget):
                         self.curve[r].setData(np.asarray(self.curve_x[r]), np.asarray(self.curve_y[r]))
             else:
                 k, _ = self._pick_otm(r)
-                px = self.qs.now(r, k, T) if k is not None else np.nan
+                px = self.qs.now(r, k, self.Tq) if k is not None else np.nan
                 self.tgt[r].setText(f"BUY {nm} → {k:g} @ {px:.2f}" if (k is not None and px == px)
                                     else f"BUY {nm} → —")
         if entries:
@@ -330,7 +333,7 @@ class TradePanel(QtWidgets.QWidget):
         if strike is None:
             self._log("✗ no OTM strike available"); return
         if self.cb_confirm.isChecked():
-            quote = self.qs.now(right, strike, self.T)
+            quote = self.qs.now(right, strike, getattr(self, "Tq", self.T))
             qt = f"{quote:.2f}" if quote == quote else "—"
             if not self._confirm(f"Buy {q}x {strike:g}{right} @ ~{qt} (fills next second)?"):
                 return
@@ -363,7 +366,7 @@ class TradePanel(QtWidgets.QWidget):
         if not held:
             self._log("✗ nothing to close"); return
         if self.cb_confirm.isChecked():
-            quote = self.qs.now(right, held["strike"], self.T)
+            quote = self.qs.now(right, held["strike"], getattr(self, "Tq", self.T))
             qt = f"{quote:.2f}" if quote == quote else "—"
             if not self._confirm(f"Close {held['qty']}x {held['strike']:g}{right} @ ~{qt} (fills next second)?"):
                 return

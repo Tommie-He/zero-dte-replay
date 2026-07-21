@@ -45,6 +45,31 @@ python app.py
 3. Trade from the **🎯 Order Panel** (see below).
 4. Press **⏹ End** (or let it run to the close) → grade the session → it's archived.
 
+## No option chain. On purpose.
+
+Real trading platforms make you work through an option chain, a T-style quote board,
+expiration menus and strike pickers before you can even click buy. For 0DTE momentum
+trading that friction *is* the mistake — by the time you've found your contract, the move
+is gone. ZeroDTE Replay deliberately strips all of it:
+
+- **No chain, no T-board, no contract hunting.** Every buy is simply the 0DTE contract
+  **at the money** — the nearest out-of-the-money strike is auto-selected the instant
+  you click, and its live quote is already on the button.
+- One decision only: **direction and timing.** Which is exactly the skill you're here to train.
+
+## Fills you can trust
+
+The fill methodology is inherited from the quantitative backtesting engine this tool grew
+out of, where the iron rule is: *quotes are NBBO, and you fill at the **next second** —
+never at a price you have already seen.*
+
+- Quotes shown are mid prices on a per-second grid, in sync with the chart.
+- Your order fills at the mid **one second after** your click. No look-ahead, ever.
+- In this free demo the quotes are model-generated (synthetic sessions, Black-Scholes with
+  a realistic intraday IV path). The **real-data edition** (in the works) replays actual
+  historical **NBBO quotes**, so fills reflect true market conditions second by second —
+  same mechanics, real tape.
+
 ## How the order panel works
 
 Modeled on a real one-click 0DTE panel — two buttons per side, zero order-ticket friction:
