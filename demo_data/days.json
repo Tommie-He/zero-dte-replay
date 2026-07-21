@@ -1,0 +1,47 @@
+[
+ {
+  "id": "DEMO-01",
+  "date": "2000-01-03",
+  "kind": "trend-up",
+  "s0": 533.95,
+  "n_strikes": 19,
+  "synthetic": true,
+  "note": "Synthetic session modeled on anonymized volatility profiles. Not real market data."
+ },
+ {
+  "id": "DEMO-02",
+  "date": "2000-01-04",
+  "kind": "trend-down",
+  "s0": 513.67,
+  "n_strikes": 18,
+  "synthetic": true,
+  "note": "Synthetic session modeled on anonymized volatility profiles. Not real market data."
+ },
+ {
+  "id": "DEMO-03",
+  "date": "2000-01-05",
+  "kind": "chop",
+  "s0": 476.01,
+  "n_strikes": 17,
+  "synthetic": true,
+  "note": "Synthetic session modeled on anonymized volatility profiles. Not real market data."
+ },
+ {
+  "id": "DEMO-04",
+  "date": "2000-01-06",
+  "kind": "gap-day",
+  "s0": 592.39,
+  "n_strikes": 21,
+  "synthetic": true,
+  "note": "Synthetic session modeled on anonymized volatility profiles. Not real market data."
+ },
+ {
+  "id": "DEMO-05",
+  "date": "2000-01-07",
+  "kind": "normal",
+  "s0": 622.38,
+  "n_strikes": 22,
+  "synthetic": true,
+  "note": "Synthetic session modeled on anonymized volatility profiles. Not real market data."
+ }
+]

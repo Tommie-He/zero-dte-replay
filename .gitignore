@@ -1,0 +1,8 @@
+trading_log/
+demo_config.json
+__pycache__/
+*.pyc
+_preview_synthetic.png
+t_demo.log
+make_sample_days.py
+demo_data/_gen_checks.json
