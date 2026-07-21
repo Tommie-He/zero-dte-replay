@@ -6,3 +6,8 @@ _preview_synthetic.png
 t_demo.log
 make_sample_days.py
 demo_data/_gen_checks.json
+_shot_chart.png
+_shot_panel.png
+_shot.log
+_gh_auth.log
+docs/screenshot_chart.png

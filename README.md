@@ -6,7 +6,11 @@ with a one-click order panel, realistic next-second fills, and a forced review l
 
 No account. No API key. No market-data subscription. Download and train.
 
-![chart](docs/screenshot_chart.png)
+![ZeroDTE Replay in action](docs/screenshot_main.png)
+
+*Live session: two CALL entries (▲) averaged at the same strike, closed 4x for +$106 (★, dashed
+line = the round trip), then 3x PUTs opened (▼) — panel showing live P&L, position size, hold
+timer, and the held option's price path from second 0 with the cost line.*
 
 ## Why
 
@@ -31,9 +35,27 @@ python app.py
 
 1. Click **🎲 New Session** → a session is blind-picked (reroll if you like) → OK.
 2. The chart arms at your chosen start time. Press **▶ Start** when ready.
-3. Trade from the **🎯 Order Panel**: BUY CALL / BUY PUT (nearest OTM, add-ons at the same
-   strike), CLOSE closes the whole side. Watch your held option's price from second 0.
+3. Trade from the **🎯 Order Panel** (see below).
 4. Press **⏹ End** (or let it run to the close) → grade the session → it's archived.
+
+## How the order panel works
+
+Modeled on a real one-click 0DTE panel — two buttons per side, zero order-ticket friction:
+
+- **BUY CALL / BUY PUT** buys the **nearest out-of-the-money 0DTE contract**: for calls, the
+  lowest strike *above* spot; for puts, the highest strike *below* spot. The target strike and
+  its live quote are always shown above the button (`BUY CALL → 535 @ 1.37`).
+- **Adding while holding buys the *same* strike** (no accidental strike ladder) and updates
+  your average cost — the dashed cost line on the option chart moves with it.
+- **CLOSE closes the entire side at once.** There is no sell-to-open; you can never end up
+  short an option by accident.
+- **Fills are honest**: your order fills at the model mid **one second after** your click.
+  You never trade on a price you've already seen — same rule as the backtests this tool grew out of.
+- **Live position readout**: merged P&L (mark-to-mid), position size, hold timer, and a chart
+  of your held option's price that starts at 0:00 the moment you enter — so "what has this
+  contract done since *my* entry" is always one glance away.
+- **Every fill is journaled** (`trading_log/journal.csv`) with sim-time, strike, qty, fill,
+  spot, realized P&L and hold seconds.
 
 ## The data (read this)
 
