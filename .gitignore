@@ -17,3 +17,5 @@ dist/
 _build.log
 _smoke.txt
 crash.log
+_shot2.log
+_shot*.log
