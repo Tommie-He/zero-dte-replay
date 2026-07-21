@@ -60,19 +60,25 @@ class Candles(pg.GraphicsObject):
     def __init__(self):
         super().__init__(); self.pic = QtGui.QPicture()
 
-    def setData(self, x, o, h, l, c):
+    def setData(self, x, o, h, l, c, wick=True):
         self.pic = QtGui.QPicture(); qp = QtGui.QPainter(self.pic)
         gb = pg.mkBrush("#1a9850"); rb = pg.mkBrush("#d73027")
         gp = pg.mkPen("#1a9850"); rp = pg.mkPen("#d73027")
         gp.setCosmetic(True); rp.setCosmetic(True)
         w = float(np.median(np.diff(x))) * 0.8 if len(x) > 1 else 0.8
+        bodies = [abs(c[i] - o[i]) for i in range(len(x))]
+        minh = 0.35 * float(np.median(bodies)) if bodies else 0.0   # 最小实体高度: 小实体也可见(同原版)
+        if wick:
+            for i in range(len(x)):
+                qp.setPen(gp if c[i] >= o[i] else rp)
+                qp.drawLine(QtCore.QPointF(x[i], l[i]), QtCore.QPointF(x[i], h[i]))
+        qp.setPen(QtCore.Qt.NoPen)
         for i in range(len(x)):
-            up = c[i] >= o[i]
-            qp.setPen(gp if up else rp)
-            qp.drawLine(QtCore.QPointF(x[i], l[i]), QtCore.QPointF(x[i], h[i]))
-            top = max(o[i], c[i]); bot = min(o[i], c[i])
-            qp.setPen(QtCore.Qt.NoPen); qp.setBrush(gb if up else rb)
-            qp.drawRect(QtCore.QRectF(x[i] - w / 2, bot, w, max(top - bot, 1e-9)))
+            top = max(o[i], c[i]); bot = min(o[i], c[i]); bh = top - bot
+            if bh < minh:
+                bot = (top + bot) * 0.5 - minh * 0.5; bh = minh
+            qp.setBrush(gb if c[i] >= o[i] else rb)
+            qp.drawRect(QtCore.QRectF(x[i] - w / 2, bot, w, max(bh, 1e-9)))
         qp.end(); self.prepareGeometryChange(); self.update(); self.informViewBoundsChanged()
 
     def paint(self, p, *a): p.drawPicture(0, 0, self.pic)
@@ -138,14 +144,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.b_jump = QtWidgets.QPushButton("⏩ Jump"); self.b_jump.setEnabled(False)
         self.cb_follow = QtWidgets.QCheckBox("Follow"); self.cb_follow.setChecked(True)
         self.cb_follow.setToolTip("Auto-scroll with the replay clock. Any manual pan/zoom turns this off.")
+        self.cb_ha = QtWidgets.QCheckBox("Heikin-Ashi"); self.cb_ha.setChecked(bool(cfg_load().get("ha", True)))
+        self.cb_ha.setToolTip("Smoothed Heikin-Ashi candles (default). Uncheck for raw OHLC candles with wicks.")
         self.cb_vwap = QtWidgets.QCheckBox("VWAP"); self.cb_vwap.setChecked(bool(cfg_load().get("vwap", True)))
         self.b_panel = QtWidgets.QPushButton("🎯 Order Panel")
         self.lb_clock = QtWidgets.QLabel("—")
         self.lb_clock.setStyleSheet("color:#b8006b;font-size:12pt;font-weight:bold;font-family:Consolas;")
         self.lb_info = QtWidgets.QLabel("Click 🎲 New Session to begin")
         for w in [self.b_pick, self.b_start, self.b_end, QtWidgets.QLabel("Speed"), self.cb_speed,
-                  QtWidgets.QLabel("At"), self.te_time, self.b_jump, self.cb_follow, self.cb_vwap,
-                  self.b_panel, QtWidgets.QLabel(" ⏱"), self.lb_clock, self.lb_info]:
+                  QtWidgets.QLabel("At"), self.te_time, self.b_jump, self.cb_follow, self.cb_ha,
+                  self.cb_vwap, self.b_panel, QtWidgets.QLabel(" ⏱"), self.lb_clock, self.lb_info]:
             bar.addWidget(w)
         bar.addStretch(1)
         win = pg.GraphicsLayoutWidget(); v.addWidget(win, 1)
@@ -183,6 +191,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cb_speed.currentTextChanged.connect(lambda s: setattr(self, "speed", float(s[:-1])))
         self.cb_vwap.stateChanged.connect(lambda *a: (cfg_save({"vwap": self.cb_vwap.isChecked()}),
                                                       self._invalidate(), self.render()))
+        self.cb_ha.stateChanged.connect(lambda *a: (cfg_save({"ha": self.cb_ha.isChecked()}),
+                                                    self._invalidate(), self.render()))
         self.pP.vb.sigRangeChangedManually.connect(self._manual_range)
         self.pP.vb.sigRangeChanged.connect(lambda *a: self.render())
         self.pP.scene().sigMouseClicked.connect(self._on_dblclick)
@@ -355,7 +365,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.ep is None or self.idx < 2: return
         N = self.idx
         d0, d1 = self.pP.vb.viewRange()[0]
-        sig = (N, round(d0, 2), round(d1, 2), self.cb_vwap.isChecked())
+        sig = (N, round(d0, 2), round(d1, 2), self.cb_vwap.isChecked(), self.cb_ha.isChecked())
         if sig == self._render_sig: return
         self._render_sig = sig
         ep = self.ep[:N]; arr = self.arr[:N]
@@ -368,8 +378,17 @@ class MainWindow(QtWidgets.QMainWindow):
         if len(sx) > MAXD:
             k = int(np.ceil(len(sx) / MAXD))
             sx, so, sh, sl, sc, sv = stride_agg(k, sx, so, sh, sl, sc, sv)
-        self.candle.setData(sx, so, sh, sl, sc)
-        es = pd.Series(sc).ewm(span=30).mean().values
+        if self.cb_ha.isChecked():                 # Heikin-Ashi(默认): 平滑无影线, 同原版秒级图观感
+            M = len(sx)
+            hc = (so + sh + sl + sc) / 4.0
+            ho = np.empty(M); ho[0] = (so[0] + sc[0]) / 2.0
+            for i in range(1, M): ho[i] = (ho[i - 1] + hc[i - 1]) / 2.0
+            hh = np.maximum.reduce([sh, ho, hc]); hl = np.minimum.reduce([sl, ho, hc])
+            do, dh, dl, dc, wick = ho, hh, hl, hc, False
+        else:
+            do, dh, dl, dc, wick = so, sh, sl, sc, True
+        self.candle.setData(sx, do, dh, dl, dc, wick=wick)
+        es = pd.Series(dc).ewm(span=30).mean().values
         self.ema.setData(sx, es)
         if self.cb_vwap.isChecked():
             vw = self.vwap_all[np.clip(np.searchsorted(self.ep, sx, "left"), 0, len(self.vwap_all) - 1)]
@@ -377,13 +396,13 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.vwapc.setData([], [])
         self.pline.setValue(float(arr[-1, 3]))
-        up = sc >= so
+        up = dc >= do
         w = float(np.median(np.diff(sx))) * 0.8 if len(sx) > 1 else 0.8
         self.vU.setOpts(x=sx[up], height=sv[up], width=w)
         self.vD.setOpts(x=sx[~up], height=sv[~up], width=w)
         if len(sv):
             self.pV.setYRange(0, max(float(np.percentile(sv, 99)), 1.0) * 1.08, padding=0)
-        ylo = float(sl.min()); yhi = float(sh.max()); ysp = max(yhi - ylo, 1e-6)
+        ylo = float(dl.min()); yhi = float(dh.max()); ysp = max(yhi - ylo, 1e-6)
         self.pP.vb.setYRange(ylo - 0.04 * ysp, yhi + 0.04 * ysp, padding=0)
 
     # -------------------------------------------------------------- marks
