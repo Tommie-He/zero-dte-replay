@@ -11,3 +11,9 @@ _shot_panel.png
 _shot.log
 _gh_auth.log
 docs/screenshot_chart.png
+build/
+dist/
+*.spec
+_build.log
+_smoke.txt
+crash.log

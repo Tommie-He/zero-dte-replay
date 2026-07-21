@@ -27,7 +27,9 @@ from trade_panel import TradePanel
 APP_NAME = "ZeroDTE Replay"
 VERSION = "0.1.0"
 NY = "America/New_York"
-CFG_PATH = os.path.join(HERE, "demo_config.json")
+# 可写目录: 打包(frozen)时=exe旁边(内嵌目录是临时只读的), 脚本运行时=脚本目录
+RUN_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else HERE
+CFG_PATH = os.path.join(RUN_DIR, "demo_config.json")
 
 pg.setConfigOptions(antialias=False, useOpenGL=False, background="w", foreground="k")
 
@@ -192,7 +194,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def get_panel(self):
         if self.panel is None:
-            self.panel = TradePanel(HERE, mark_cb=self.add_mark, hold_cb=self._dlg_hold)
+            self.panel = TradePanel(RUN_DIR, mark_cb=self.add_mark, hold_cb=self._dlg_hold)
         return self.panel
 
     def _dlg_hold(self, flag):
@@ -425,8 +427,37 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
 def main():
+    # 崩溃黑匣子: --windowed打包无控制台, 未捕获异常写到exe旁的crash.log
+    def _hook(tp, val, tb):
+        import traceback, datetime as _d
+        try:
+            with open(os.path.join(RUN_DIR, "crash.log"), "a", encoding="utf-8") as f:
+                f.write(f"\n== {_d.datetime.now():%Y-%m-%d %H:%M:%S} ==\n")
+                f.write("".join(traceback.format_exception(tp, val, tb)))
+        except Exception:
+            pass
+        sys.__excepthook__(tp, val, tb)
+    sys.excepthook = _hook
     app = pg.mkQApp(APP_NAME)
     mw = MainWindow(); mw.show()
+    if "--smoke" in sys.argv:                      # 打包自检: 起一个会话跑几秒, 结果写_smoke.txt
+        def _smoke():
+            try:
+                mw._load_day("DEMO-01"); mw._arm(); mw.toggle_start()
+                def _done():
+                    ok = mw.sim_on and mw.idx > 0 and mw.panel is not None
+                    with open(os.path.join(RUN_DIR, "_smoke.txt"), "w") as f:
+                        f.write("SMOKE_OK" if ok else "SMOKE_FAIL")
+                    app.quit()
+                QtCore.QTimer.singleShot(4000, _done)
+            except Exception as e:
+                try:
+                    with open(os.path.join(RUN_DIR, "_smoke.txt"), "w") as f:
+                        f.write(f"SMOKE_ERR {type(e).__name__}: {e}")
+                except Exception:
+                    pass
+                app.quit()
+        QtCore.QTimer.singleShot(1200, _smoke)
     app.exec_()
 
 

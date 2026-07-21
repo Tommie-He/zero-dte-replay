@@ -28,6 +28,13 @@ money and only come one trading day per day. ZeroDTE Replay gives you deliberate
 
 ## Quick start
 
+**Windows — no install:** download `ZeroDTE-Replay.exe` from
+[**Releases**](https://github.com/Tommie-He/zero-dte-replay/releases) and double-click.
+(First launch takes a few seconds to unpack. If SmartScreen warns about an unknown
+publisher, choose "More info → Run anyway" — the source you're looking at is what's inside.)
+
+**Any OS — from source:**
+
 ```bash
 pip install -r requirements.txt
 python app.py
