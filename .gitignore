@@ -19,3 +19,5 @@ _smoke.txt
 crash.log
 _shot2.log
 _shot*.log
+_build*.log
+_*.log
